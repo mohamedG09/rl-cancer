@@ -1,0 +1,260 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage[numbers]{natbib}
+
+\title{EVO-ECO Matrix: Cellular Plasticity as a Markov Decision Process\\[0.5em]
+\large Q-Learning Simulation of Cancer Cell Survival Strategy}
+\author{Mohamed Gamal}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report documents the design and simulation of a reinforcement learning model that frames cancer cell decision-making as a Markov Decision Process (MDP). A single cell-agent navigates a 32-state environment defined by phenotype, genotype, therapy status, resource availability, and hazard level, choosing among three actions: proliferate, quiesce, or switch phenotype. Using tabular Q-learning, we sweep the metabolic cost of phenotypic plasticity to identify the tipping point at which the optimal strategy shifts from non-genetic adaptation (phenotype switching) to genetic evolution (proliferation with stochastic mutation). All biological rules were specified by the biology team and translated into computational parameters.
+\end{abstract}
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+Cancer progression can be understood through the lens of evolutionary and ecological dynamics. Tumour cells compete for resources, face selective pressures from therapy and immune surveillance, and adapt through both genetic mutations and non-genetic phenotypic plasticity. This dual capacity for adaptation raises a central question:
+
+\begin{quote}
+\emph{At what metabolic cost does phenotypic plasticity become a worse survival strategy than proliferating and waiting for a random resistance mutation?}
+\end{quote}
+
+To investigate this question computationally, we model a single cancer cell as a reinforcement learning agent operating in a stochastic microenvironment. The agent learns an optimal survival policy via Q-learning, and we sweep the cost of phenotype switching to locate the tipping point between plasticity-dependent and mutation-dependent strategies.
+
+% ============================================================
+\section{Experiment Setup}
+% ============================================================
+
+The simulation is implemented in Python using NumPy for computation and Matplotlib for visualisation. The complete source code is available at \url{https://github.com/mohamedG09/rl-cancer}.
+
+\subsection{Learning Algorithm}
+
+We employ tabular Q-learning with an $\varepsilon$-greedy exploration policy. The Q-table has dimensions $32 \times 3$ (states $\times$ actions). The hyperparameters are:
+
+\begin{table}[H]
+\centering
+\caption{Q-learning hyperparameters.}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Parameter & Value \\
+\midrule
+Learning rate ($\alpha$) & 0.1 \\
+Discount factor ($\gamma$) & 0.95 \\
+Initial exploration rate ($\varepsilon_0$) & 1.0 \\
+Exploration decay & $\times\,0.995$ per episode \\
+Minimum exploration ($\varepsilon_{\min}$) & 0.01 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The Q-value update rule follows:
+\[
+Q(s, a) \leftarrow Q(s, a) + \alpha \Big[ r + \gamma \max_{a'} Q(s', a') - Q(s, a) \Big]
+\]
+
+\subsection{Plasticity Cost Sweep}
+
+The core experiment sweeps the plasticity cost parameter $c_{\text{plast}}$ across 30 evenly spaced values from 0.0 to 3.0. For each cost value:
+
+\begin{itemize}[nosep]
+  \item \textbf{Training}: 1{,}000 episodes, each up to 1{,}000 time steps.
+  \item \textbf{Evaluation}: 200 episodes using the learned greedy policy ($\varepsilon = 0$).
+\end{itemize}
+
+\subsection{Starting Condition}
+
+Each episode begins in the state (Differentiated, Sensitive, Therapy~ON, Resources~High, Hazards~High)---a stressed, therapy-sensitive cell in the harshest viable environment. This starting condition was chosen because it forces the agent to make meaningful survival decisions from the outset.
+
+% ============================================================
+\section{Defined States}
+% ============================================================
+
+\subsection{State Space}
+
+The state is a 5-dimensional binary vector:
+\[
+\text{State} = (\text{Phenotype},\; \text{Genotype},\; \text{Therapy},\; \text{Resources},\; \text{Hazards})
+\]
+
+This yields $2^5 = 32$ distinct states, encoded as a single integer:
+\[
+s = P \times 16 + G \times 8 + T \times 4 + R \times 2 + H
+\]
+
+\begin{table}[H]
+\centering
+\caption{State dimensions and their biological interpretation.}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Dimension & Value 0 & Value 1 & Biological Meaning \\
+\midrule
+Phenotype ($P$) & Differentiated (D) & Stem-like (S) & Epigenetic cell identity \\
+Genotype ($G$) & Sensitive & Resistant & Acquired drug resistance \\
+Therapy ($T$) & OFF & ON & Treatment active \\
+Resources ($R$) & Low & High & Oxygen/nutrient availability \\
+Hazards ($H$) & Low & High & Immune/therapeutic threat \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Phenotype and genotype are directly modifiable by the agent's actions, while therapy, resources, and hazards are environmental variables that stochastically toggle with probability 0.10 per dimension per time step.
+
+\subsection{Action Space}
+
+The agent selects one of three actions at each time step:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Proliferate} --- attempt cell division; triggers a mutation check ($G\!: 0 \to 1$ with probability $\mu_{\text{eff}} = 0.002$).
+  \item \textbf{Quiesce} --- enter dormancy; death probability is halved ($\times\,0.5$).
+  \item \textbf{Switch} --- flip phenotype ($D \leftrightarrow S$); incurs metabolic cost $c_{\text{plast}}$.
+\end{enumerate}
+
+\subsection{Death Probability}
+
+Survival is determined stochastically at each step. The base death probability depends on the current therapy status, hazard level, resource level, and phenotype:
+
+\begin{table}[H]
+\centering
+\caption{Base death probabilities by environmental condition and phenotype.}
+\label{tab:death}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Condition & $P_{\text{death}}$ (D) & $P_{\text{death}}$ (S) \\
+\midrule
+Therapy ON, Hazards High, Resources Low   & 0.60 & 0.15 \\
+Therapy ON, Hazards High, Resources High  & 0.35 & 0.15 \\
+Therapy ON, Hazards Low, Resources Low    & 0.35 & 0.10 \\
+Therapy ON, Hazards Low, Resources High   & 0.25 & 0.08 \\
+Therapy OFF, Hazards High, Resources Low  & 0.25 & 0.10 \\
+Therapy OFF, Hazards High, Resources High & 0.15 & 0.08 \\
+Therapy OFF, Hazards Low, Resources Low   & 0.15 & 0.15 \\
+Therapy OFF, Hazards Low, Resources High  & 0.05 & 0.05 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two multiplicative modifiers reduce death probability:
+\begin{itemize}[nosep]
+  \item \textbf{Genetic resistance} ($G = 1$): $\times\,0.5$
+  \item \textbf{Quiescence} (action = Quiesce): $\times\,0.5$
+\end{itemize}
+
+These stack multiplicatively; a resistant cell that quiesces faces $0.25\times$ the base death probability.
+
+% ============================================================
+\section{Reward Function}
+% ============================================================
+
+The reward function encodes biological fitness as survival plus reproduction minus costs, following the Merlo and Maley framework:
+
+\begin{table}[H]
+\centering
+\caption{Reward components.}
+\begin{tabular}{@{}lr@{}}
+\toprule
+Event & Reward \\
+\midrule
+Survive this step & $+1.0$ \\
+Proliferate and survive & $+2.0$ (additional) \\
+Cell death & $-10.0$ (terminal) \\
+Switch phenotype & $-c_{\text{plast}}$ (swept: 0.0--3.0) \\
+Quiesce & $-0.1$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The plasticity cost $c_{\text{plast}}$ is the key experimental parameter. As it increases, the agent is expected to abandon phenotype switching in favour of proliferation (with its attendant chance of acquiring genetic resistance) or quiescence.
+
+\subsection{Mutation Dynamics}
+
+Genetic resistance ($G\!: 0 \to 1$) arises only during proliferation, with effective mutation rate:
+\[
+\mu_{\text{eff}} = \mu_0 \times f(\text{Evo}) = 0.002 \times 1.0 = 0.002
+\]
+
+where $\mu_0$ is the base mutation rate and $f(\text{Evo})$ is the evolutionary pressure multiplier (set to 1.0 in the current simulation). Once resistance is acquired, it is permanent and halves all subsequent death probabilities.
+
+% ============================================================
+\section{Diagram Flow}
+% ============================================================
+
+The simulation follows the decision loop illustrated in Figure~\ref{fig:flowchart}. At each time step:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Evaluate environment}: decode the current state into its five binary dimensions.
+  \item \textbf{Survival check}: if the cell died in the previous step, the episode ends.
+  \item \textbf{Choose action}: the $\varepsilon$-greedy policy selects Proliferate, Quiesce, or Switch.
+  \item \textbf{Apply action effects}:
+    \begin{itemize}[nosep]
+      \item Proliferate: mutation check ($G\!: 0 \to 1$ with $p = 0.002$).
+      \item Quiesce: no state change; death modifier applied later.
+      \item Switch: phenotype flips ($D \leftrightarrow S$); plasticity cost deducted.
+    \end{itemize}
+  \item \textbf{Environment stochastic toggle}: therapy, resources, and hazards each flip independently with $p = 0.10$.
+  \item \textbf{Death check}: compute death probability from Table~\ref{tab:death} with applicable modifiers; sample survival outcome.
+  \item \textbf{Compute reward}: assign rewards per the reward function (Section~4).
+  \item \textbf{Q-update}: update the Q-table using the temporal difference error.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{Full_Flow_Chart.svg}
+\caption{Cancer Cell Decision and Evolution Model---flow diagram showing the per-step decision loop. Diagram specified by the biology team.}
+\label{fig:flowchart}
+\end{figure}
+
+% ============================================================
+\section{Simulation Outcomes}
+% ============================================================
+
+% TODO: Replace this section with actual results once provided.
+% The following describes the three metrics collected during the plasticity cost sweep.
+
+The evaluation phase collects three metrics across the 30 plasticity cost values:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Strategy preference}: the fraction of actions allocated to Proliferate, Quiesce, and Switch at each cost level.
+  \item \textbf{Cell fitness}: average cumulative reward per evaluation episode.
+  \item \textbf{Survival duration}: average number of time steps survived per episode.
+\end{enumerate}
+
+\textbf{[PLACEHOLDER --- Awaiting simulation output plots and numerical results. The tipping point value, action distribution crossover, and survival curves will be inserted here once provided.]}
+
+% ============================================================
+\section{Use of AI Tools}
+% ============================================================
+
+The development of this simulation involved the use of generative AI tools in the following capacities:
+
+\begin{itemize}
+  \item \textbf{ChatGPT} (OpenAI) --- assisted the biology team in formulating the biological model specification, including the state space design, death probability table, reward structure, and transition rules documented in the biology team specification.
+  \item \textbf{Claude} (Anthropic) --- assisted the computational team in translating the biological specification into a working Q-learning simulation, including the \texttt{BioConfig} class architecture, the Q-learning engine, the plasticity cost sweep framework, visualisation code, and this report.
+\end{itemize}
+
+All AI-generated code and text were reviewed, tested, and validated by the authors against the biological specification. Parameter values were verified against the source code to ensure accuracy.
+
+% ============================================================
+\section{References}
+% ============================================================
+
+\begin{enumerate}[label={[\arabic*]}, nosep]
+  \item Gamal, M. \emph{rl-cancer: Q-Learning Simulation of Cancer Cell Plasticity}. GitHub repository. \url{https://github.com/mohamedG09/rl-cancer}
+  \item Sutton, R.S. and Barto, A.G. (2018). \emph{Reinforcement Learning: An Introduction}. 2nd~ed. MIT Press.
+  \item Merlo, L.M.F., Pepper, J.W., Reid, B.J. and Maley, C.C. (2006). Cancer as an evolutionary and ecological process. \emph{Nature Reviews Cancer}, 6(12), pp.924--935.
+\end{enumerate}
+
+\end{document}
