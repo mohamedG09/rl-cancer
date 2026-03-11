@@ -1,0 +1,36 @@
+{
+  "latex-workshop.latex.tools": [
+    {
+      "name": "latexmk",
+      "command": "latexmk",
+      "args": [
+        "-synctex=1",
+        "-interaction=nonstopmode",
+        "-file-line-error",
+        "-pdf",
+        "-outdir=tex_extras",
+        "%DOC%"
+      ]
+    },
+    {
+      "name": "copyPDF",
+      "command": "cmd",
+      "args": [
+        "/c",
+        "copy",
+        "/y",
+        "tex_extras\\%DOCFILE%.pdf",
+        "%DOCFILE%.pdf"
+      ]
+    }
+  ],
+  "latex-workshop.latex.recipes": [
+    {
+      "name": "latexmk + copy PDF",
+      "tools": [
+        "latexmk",
+        "copyPDF"
+      ]
+    }
+  ]
+}
