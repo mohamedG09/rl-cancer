@@ -1,0 +1,76 @@
+%%{init: {"flowchart": {"htmlLabels": true}} }%%
+flowchart TB
+  %% =========================================================
+  %% Cancer Cell Decision & Evolution Model as an MDP
+  %% State s = (Phenotype P, Genotype G, Therapy T, Resources R, Hazards H)
+  %% Actions a ∈ {PROLIF, QUIESC, SWITCH}
+  %% =========================================================
+
+  Start([Start of step t]) --> Obs["Evaluate environment / observe state<br/>s_t = (P,G,T,R,H)"]
+  Obs --> Alive{Is the cell alive?}
+
+  Alive -- "No" --> Terminal["Cell death<br/>Terminal state"]
+  Terminal --> R_dead[[Reward r_t = -10<br/>Episode ends]]
+
+  Alive -- "Yes" --> Choose["Choose action a_t<br/>(policy / Q-table)"]
+
+  Choose -->|PROLIF| A_prolif["PROLIF: attempt division"]
+  Choose -->|QUIESC| A_quiesc["QUIESC: quiesce/persist<br/>(lower hazard exposure)"]
+  Choose -->|SWITCH| A_switch["SWITCH: plasticity<br/>flip phenotype D ↔ S"]
+
+  %% --- PROLIF branch: resources gate division success ---
+  A_prolif --> ResOK{"Resources R high enough<br/>for division?"}
+  ResOK -- "Yes" --> DivOK["Division succeeds"]
+  ResOK -- "No" --> DivFail["Failed division<br/>(no growth bonus)"]
+
+  %% --- SWITCH branch: phenotype flips + cost ---
+  A_switch --> FlipP["Update phenotype:<br/>P := (D↔S) with high prob"]
+  FlipP --> CostSwitch["Apply plasticity cost<br/>(-c_plast)"]
+
+  %% --- QUIESC branch: no division, small penalty later ---
+  A_quiesc --> QuiescMod["Optional: reduce hazard exposure<br/>(e.g., lower effective H)"]
+
+  %% --- Mortality / survival check depends on therapy, hazards, resources, phenotype ---
+  DivOK --> Mort["Apply hazard/therapy mortality<br/>p_death = f(T,H,R,P,action)"]
+  DivFail --> Mort
+  CostSwitch --> Mort
+  QuiescMod --> Mort
+
+  Mort --> Survive{Survive this step?}
+
+  Survive -- "No" --> Terminal2["Cell death<br/>Terminal state"]
+  Terminal2 --> R_dead2[[Reward r_t = -10<br/>Episode ends]]
+
+  %% --- If survive, mutation can create genetic resistance mainly during proliferation ---
+  Survive -- "Yes" --> Mutate{"If action=PROLIF and G=0:<br/>mutate to resistance?"}
+  Mutate -- "Yes (prob μ_eff)" --> G1["Update genotype:<br/>G := 1 (genetically resistant)"]
+  Mutate -- "No" --> Gsame["Genotype unchanged"]
+
+  %% --- Reward computation (fitness = survival + reproduction - costs) ---
+  G1 --> Reward["Compute reward r_t:<br/>+1 if survive<br/>+b if PROLIF & division succeeded<br/>-c_plast if SWITCH<br/>-c_quiesc if QUIESC<br/>(-10 already handled if death)"]
+  Gsame --> Reward
+
+  Reward --> Next["Advance to next step (t := t+1)<br/>Update environment variables as needed:<br/>T may follow adaptive schedule (ON/OFF)<br/>R, H may change with ecology/therapy"]
+  Next --> Obs
+
+  %% =========================
+  %% Side panel: MDP definition
+  %% =========================
+  Obs -.-> StateDef
+  Choose -.-> ActDef
+
+  subgraph StateDef["MDP State (32 total combinations)"]
+    direction TB
+    Pdef["Phenotype P:<br/>S = stem-like (stress-tolerant)<br/>D = differentiated (proliferative/sensitive)"]
+    Gdef["Genotype G:<br/>0 = not genetically resistant<br/>1 = genetically resistant"]
+    Tdef["Therapy T:<br/>ON / OFF (adaptive schedule)"]
+    Rdef["Resources R:<br/>High / Low (oxygen/nutrients)"]
+    Hdef["Hazards H:<br/>High / Low (therapy + immune predation)"]
+  end
+
+  subgraph ActDef["MDP Actions"]
+    direction TB
+    A1["PROLIF (divide)"]
+    A2["QUIESC (survive w/ lower exposure)"]
+    A3["SWITCH (plasticity D ↔ S, pays cost)"]
+  end
